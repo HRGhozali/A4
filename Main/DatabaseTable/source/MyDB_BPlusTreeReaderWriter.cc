@@ -28,8 +28,8 @@ MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName,
 		rootLocation = 0;
 
 		// Get a page for the root and another for the first leaf
-		MyDB_PageReaderWriter rootPage = make_shared<MyDB_PageReaderWriter>(*this, rootLocation);
-		MyDB_PageReaderWriter leafPage = make_shared<MyDB_PageReaderWriter>(*this, 1);
+		MyDB_PageReaderWriter rootPage = (*this)[rootLocation];
+		MyDB_PageReaderWriter leafPage = (*this)[1];
 
 		// Set up the corresponding page types
 		rootPage.setType(MyDB_PageType::DirectoryPage);
@@ -101,28 +101,32 @@ MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getRangeIteratorAlt (MyD
 
 bool MyDB_BPlusTreeReaderWriter :: discoverPages (int whichPage, vector <MyDB_PageReaderWriter> &list, MyDB_AttValPtr low, MyDB_AttValPtr high) {
 	// Recursively traverse all nodes to find all pages in range
-	MyDB_RecordPtr myRec = getEmptyRecord();
     MyDB_INRecordPtr llow = getINRecord();
     llow->setKey(low);
     MyDB_INRecordPtr hhigh = getINRecord();
     hhigh->setKey(high);
+	MyDB_INRecordPtr myRec;
 	function <bool ()> lowComparator = buildComparator(myRec, llow);
     function <bool ()> highComparator = buildComparator(hhigh, myRec);
 
-	if (make_shared<MyDB_PageReaderWriter>(*this, whichPage)->getType() == MyDB_PageType::RegularPage) {
+	MyDB_PageReaderWriter currPage = (*this)[whichPage];
+	// Do we need an extra check for whether the page has data that fits? Not sure
+	if (currPage.getType() == MyDB_PageType::RegularPage) {
 		return true;
 	}
 
-	MyDB_RecordIteratorAltPtr temp = this[whichPage].getIteratorAlt();
+	// Crappy recursive attempt
+	MyDB_RecordIteratorAltPtr temp = currPage.getIteratorAlt();
+	int childPageIdx = -1;
 	do {
-		temp->getCurrent(myRec);
+		temp->getCurrent(myRec);  // I do not know if my traversal stuff works
 		if (lowComparator() && highComparator()) {
-			MyDB_AttValPtr attTemp = getKey(myRec);
-			if (discoverPages(attTemp->toInt(), list, low, high)) {
+			childPageIdx = myRec->getPtr();
+			if (discoverPages(childPageIdx, list, low, high)) {  // If leaf, stop and immediately put every leaf into the list
 				do {
 					temp->getCurrent(myRec);
-					MyDB_AttValPtr attTemp2 = getKey(myRec);
-					list.push_back(MyDB_PageReaderWriter(*this, attTemp2->toInt()));
+					childPageIdx = myRec->getPtr();
+					list.push_back((*this)[childPageIdx]);
 				} while (temp->advance());
 				break;
 			}
@@ -137,6 +141,7 @@ void MyDB_BPlusTreeReaderWriter :: append (MyDB_RecordPtr) {
 	// Append (the optional ver.)
 	// 1. Append to leaf
 	// 2. Query function
+	
 }
 
 MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter, MyDB_RecordPtr) {
@@ -146,11 +151,11 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter, MyDB_
 // appends a record to the named page; if there is a split, then an MyDB_INRecordPtr is returned that
 // points to the record holding the (key, ptr) pair pointing to the new page.  Note that the new page
 // always holds the lower 1/2 of the records on the page; the upper 1/2 remains in the original page
-MyDB_RecordPtr append (int whichPage, MyDB_RecordPtr appendMe) {
+MyDB_RecordPtr MyDB_BPlusTreeReaderWriter::append (int whichPage, MyDB_RecordPtr appendMe) {
 	
 	// Ger a PageReaderWriter for the current page
-	MyDB_PageReaderWriter currPage = make_shared<MyDB_PageReaderWriter>(*this, whichPage);
-
+	MyDB_PageReaderWriter currPage = (*this)[whichPage];
+	
 	// Case 1: The current page is an internal diretory node
 	if (currPage.getType() == MyDB_PageType::DirectoryPage) {
 		
@@ -159,16 +164,26 @@ MyDB_RecordPtr append (int whichPage, MyDB_RecordPtr appendMe) {
 		MyDB_RecordIteratorAltPtr iterator = currPage.getIteratorAlt();
 		int childPageIdx = -1;
 
-		while (iterator->advance()) {
-			MyDB_INRecordPtr currINRecord;
-			iterator->getCurrent(currINRecord);
+		// while (iterator->advance()) {
+		
+		// 	iterator->getCurrent(currINRecord);
 
-			// buildComparator returns true if apppendMe's key < currentINRecord's key
-			if (buildComparator(appendMe, currentINRecord)()) {
-				childPageIdx = currentINRecord->getPtr();
+		// 	// buildComparator returns true if apppendMe's key < currentINRecord's key
+		// 	//function <bool ()> recComparator = buildComparator(appendMe, currINRecord);
+		// 	if (buildComparator(appendMe, currINRecord)()) {
+		// 		childPageIdx = currINRecord->getPtr();
+		// 		break;
+		// 	}
+		// }
+		
+		MyDB_INRecordPtr currINRecord;
+		do {
+			iterator->getCurrent(currINRecord);
+			if (buildComparator(appendMe, currINRecord)()) {
+				childPageIdx = currINRecord->getPtr();
 				break;
-			}
-		}
+			} 
+		} while(iterator->advance());
 
 		// Recursively call append on the child page found
 		MyDB_RecordPtr newSplitRecord = append(childPageIdx, appendMe);
@@ -177,14 +192,14 @@ MyDB_RecordPtr append (int whichPage, MyDB_RecordPtr appendMe) {
 		if (newSplitRecord != nullptr) {
 
 			// Try to append the new internal record (from the split) to the current page
-			if (currentPage.append(newSplitRecord)) {
+			if (currPage.append(newSplitRecord)) {
 				// The record fit. Sort the internal page to maintain order.
 				MyDB_INRecordPtr tempR1 = getINRecord();
 				MyDB_INRecordPtr tempR2 = getINRecord();
 				currPage.sortInPlace(buildComparator(tempR1, tempR2), tempR1, tempR2);
 			} else {
 				// The record did not fit, so this internal page must also split.
-				return split(currentPage, newSplitRecord);
+				return split(currPage, newSplitRecord);
 			}
  		} else {
 			// The child did not split, so we are good to go.
