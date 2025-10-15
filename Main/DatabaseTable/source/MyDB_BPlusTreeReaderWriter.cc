@@ -109,13 +109,22 @@ bool MyDB_BPlusTreeReaderWriter :: discoverPages (int whichPage, vector <MyDB_Pa
 	function <bool ()> lowComparator = buildComparator(myRec, llow);
     function <bool ()> highComparator = buildComparator(hhigh, myRec);
 
+	if (make_shared<MyDB_PageReaderWriter>(*this, whichPage)->getType() == MyDB_PageType::RegularPage) {
+		return true;
+	}
+
 	MyDB_RecordIteratorAltPtr temp = this[whichPage].getIteratorAlt();
 	do {
 		temp->getCurrent(myRec);
-		if (lowComparator() && highComparator) {
+		if (lowComparator() && highComparator()) {
 			MyDB_AttValPtr attTemp = getKey(myRec);
 			if (discoverPages(attTemp->toInt(), list, low, high)) {
-				list.push_back(this[attTemp->toInt()]);
+				do {
+					temp->getCurrent(myRec);
+					MyDB_AttValPtr attTemp2 = getKey(myRec);
+					list.push_back(MyDB_PageReaderWriter(*this, attTemp2->toInt()));
+				} while (temp->advance());
+				break;
 			}
 		}
 	} while (temp->advance());
