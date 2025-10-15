@@ -20,6 +20,31 @@ MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName,
 
 	// and the root location
 	rootLocation = getTable ()->getRootLocation ();
+
+	// Check the tablels last page to see if it is a new tree
+	if (getTable()->lastPage() == -1) {
+
+		// This is is a new B+-Tree, so set up a root and first leaf page.
+		rootLocation = 0;
+
+		// Get a page for the root and another for the first leaf
+		MyDB_PageReaderWriter rootPage = make_shared<MyDB_PageReaderWriter>(*this, rootLocation);
+		MyDB_PageReaderWriter leafPage = make_shared<MyDB_PageReaderWriter>(*this, 1);
+
+		// Set up the corresponding page types
+		rootPage.setType(MyDB_PageType::DirectoryPage);
+		leafPage.setType(MyDB_PageType::RegularPage);
+
+		// Create an internal record that points to the new leaf page
+		MyDB_INRecordPtr initialRec = getINRecord();
+		initialRec->setPtr(1);
+
+		// Add this internal record to the root page.
+		rootPage.append(initialRec);
+
+		// save the root's last location in the table metadata on disk.
+		getTable()->setRootLocation(rootLocation);
+	}
 }
 
 MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getSortedRangeIteratorAlt (MyDB_AttValPtr, MyDB_AttValPtr) {
@@ -42,8 +67,68 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter, MyDB_
 	return nullptr;
 }
 
-MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: append (int, MyDB_RecordPtr) {
-	return nullptr;
+// appends a record to the named page; if there is a split, then an MyDB_INRecordPtr is returned that
+// points to the record holding the (key, ptr) pair pointing to the new page.  Note that the new page
+// always holds the lower 1/2 of the records on the page; the upper 1/2 remains in the original page
+MyDB_RecordPtr append (int whichPage, MyDB_RecordPtr appendMe) {
+	
+	// Ger a PageReaderWriter for the current page
+	MyDB_PageReaderWriter currPage = make_shared<MyDB_PageReaderWriter>(*this, whichPage);
+
+	// Case 1: The current page is an internal diretory node
+	if (currPage.getType() == MyDB_PageType::DirectoryPage) {
+		
+		// Find the correct child ptr to follow by iterating through the internal records.
+		// We are looking for the first key that is greater than the key of the record we want to append.
+		MyDB_RecordIteratorAltPtr iterator = currPage.getIteratorAlt();
+		int childPageIdx = -1;
+
+		while (iterator->advance()) {
+			MyDB_INRecordPtr currINRecord;
+			iterator->getCurrent(currINRecord);
+
+			// buildComparator returns true if apppendMe's key < currentINRecord's key
+			if (buildComparator(appendMe, currentINRecord)()) {
+				childPageIdx = currentINRecord->getPtr();
+				break;
+			}
+		}
+
+		// Recursively call append on the child page found
+		MyDB_RecordPtr newSplitRecord = append(childPageIdx, appendMe);
+
+		// If the recursive call returned a MyDB_INRecrodPtr, then the child page split
+		if (newSplitRecord != nullptr) {
+
+			// Try to append the new internal record (from the split) to the current page
+			if (currentPage.append(newSplitRecord)) {
+				// The record fit. Sort the internal page to maintain order.
+				MyDB_INRecordPtr tempR1 = getINRecord();
+				MyDB_INRecordPtr tempR2 = getINRecord();
+				currPage.sortInPlace(buildComparator(tempR1, tempR2), tempR1, tempR2);
+			} else {
+				// The record did not fit, so this internal page must also split.
+				return split(currentPage, newSplitRecord);
+			}
+ 		} else {
+			// The child did not split, so we are good to go.
+			return nullptr;
+		}
+
+	// Case 2: The current page is a leaf node.
+	} else {
+		// Try to append the data record directly to the leaf page.
+		// Leaf pages are not kept in sorted order - just append at the end.
+
+		if (currPage.append(appendMe)) {
+			// The record fit. No split needed, we are good.
+			return nullptr;
+		} else {
+			// The page is full, must split.
+			// Split() will create a new page and return the new internal record to be inserted into the parent node. 
+			return split(currPage, appendMe);
+		}
+	}
 }
 
 MyDB_INRecordPtr MyDB_BPlusTreeReaderWriter :: getINRecord () {
