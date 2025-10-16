@@ -420,7 +420,7 @@ int main (int argc, char *argv[]) {
 
     cout << "Using small page size.\n";
 
-    // Test inserting a single record to avoid splits.
+    // // Test inserting a single record to avoid splits.
     {
         cout << "TEST (No Split)... creating tree for a single record table" << flush;
         MyDB_BufferManagerPtr myMgr = make_shared <MyDB_BufferManager> (1024, 128, "tempFile");
@@ -442,6 +442,36 @@ int main (int argc, char *argv[]) {
         
         cout << "Found " << counter << " records.\n";
         bool result = (counter == 1);
+
+        if (result)
+            cout << "\tTEST PASSED\n";
+        else
+            cout << "\tTEST FAILED\n";
+
+        QUNIT_IS_TRUE (result);
+    }
+
+     // Test inserting five records, which should fit on a single leaf page.
+    {
+        cout << "TEST (5 Records, No Split)... creating tree from 5-record table" << flush;
+        MyDB_BufferManagerPtr myMgr = make_shared <MyDB_BufferManager> (1024, 128, "tempFile");
+        MyDB_BPlusTreeReaderWriter supplierTable ("suppkey", myTable, myMgr);
+
+        // Load from the 5-record file.
+        supplierTable.loadFromTextFile ("tempSupplier.tbl");
+
+        // There should be exactly 5 records in the tree
+        MyDB_RecordPtr temp = supplierTable.getEmptyRecord ();
+        MyDB_RecordIteratorAltPtr myIter = supplierTable.getIteratorAlt ();
+
+        int counter = 0;
+        while (myIter->advance ()) {
+                myIter->getCurrent (temp);
+                counter++;
+        }
+        
+        cout << "Found " << counter << " records.\n";
+        bool result = (counter == 5);
 
         if (result)
             cout << "\tTEST PASSED\n";

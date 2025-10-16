@@ -7,6 +7,7 @@
 #include "MyDB_PageReaderWriter.h"
 #include "MyDB_PageListIteratorSelfSortingAlt.h"
 #include "RecordComparator.h"
+#include <algorithm>
 
 MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName, MyDB_TablePtr forMe, 
 	MyDB_BufferManagerPtr myBuffer) : MyDB_TableReaderWriter (forMe, myBuffer) {
@@ -202,7 +203,97 @@ void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
 }
 
 
-MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter, MyDB_RecordPtr) {
+MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitMe, MyDB_RecordPtr andMe) {
+    // 1. Allocate a new page.
+
+    
+    // Get the index for the new page.
+    int newPageIdx = getTable()->lastPage() + 1;
+    
+    // Immmediatly claim this page.
+    getTable()->setLastPage(newPageIdx);
+
+    // Get a PageReaderWriter for the new page.
+    MyDB_PageReaderWriter newPage = (*this)[newPageIdx];
+
+    // Set the new page's type to match the original page's type
+    MyDB_PageType splitPageType = splitMe.getType();
+    newPage.setType(splitPageType);
+
+    // 2. Gather and sort all record
+    
+    vector<MyDB_RecordPtr> records;
+
+    // Use a page iterator to loop through all records in splitMe and add them to the vector.
+    MyDB_RecordIteratorAltPtr iter = newPage.getIteratorAlt();
+    while(iter->advance() {
+        MyDB_INRecordPtr currentRec;
+        iter->getCurrent(currentRec);
+
+        records.push_back(currentRec);
+    })
+
+    // Add the new record (andMe) to the vector.
+    records.push_back(andMe);
+
+    // Sort the vector
+    std::sort(records.begin(), ecords.end(),[&](const MyDB_RecordPtr& r1, const MyDB_RecordPtr& r2) {
+        // The lambda captures 'this' to call the member function buildComparator.
+        // It returns true if r1 should come before r2, and false otherwise.
+        return buildComparator(r1, r2)();
+    });
+
+    // Clear the original page
+    splitMe.clear();
+
+    // Calculate the split point
+    int midpoint = records.size() / 2;
+    
+    
+    // -- Case 1: Splitting a leaf page (same height)
+
+    if (splitPageType == MyDB_PageType::RegularPage) {
+
+       
+        // The first half goes to the new page
+        for (int i = 0l i < midpoint; i++) {
+            newPage.append(records[i]);
+        }
+
+        // The second half goes back to the original page
+        for (int i = midpoint; i < records.size(); i++) {
+            splitMe.append(records[i]);
+        }
+
+        // The promoted key is the first key in the second half
+        MyDB_INRecordPtr promotedRec = getINRecord();
+        promotedRec->setkey(getKey(records[midpoint]));
+        return promotedRec;
+    } 
+    // Case 2: Internal/Directory pages (height growth)
+    else {
+
+        // Isolate the middle record.
+        MyDB_RecordPtr middleRecord = records[midpoint];
+
+        // The first half goes to the new page
+        for (int i = 0; i < midpoint; i++) {
+            newPage.append(records[i]);
+        }
+
+        // The second half (excluding the middle) goes back to the original page.
+        for (int i = midpoint + 1 < allRecords.size(); i++) {
+            splitMe.append(records[i]);
+        }
+
+        // return MyDB_INRecordPtr
+        MyDB_INRecordPtr promotedRec = getINRecord();
+        promotedRec->setkey(getKey(middleRecord));
+        return promotedRec;
+
+
+    }
+
 	return nullptr;
 }
 
@@ -335,21 +426,5 @@ function <bool ()>  MyDB_BPlusTreeReaderWriter :: buildComparator (MyDB_RecordPt
 		exit (1);
 	}
 }
-
-// // This is the public method the test calls.
-// MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter::getIteratorAlt() {
-    
-//     // Create an empty vector to hold all of our leaf pages.
-//     vector<MyDB_PageReaderWriter> leafPages;
-
-//     // Call our helper to populate the vector, starting from the tree's root.
-//     discoverPages(rootLocation, leafPages);
-
-//     // Create and return the special iterator designed to read from a list of pages.
-//     // Your B+-Tree structure guarantees that 'leafPages' will never be empty,
-//     // so the provided MyDB_PageListIteratorAlt constructor will be safe.
-//     return make_shared<MyDB_PageListIteratorAlt>(leafPages);
-// }
-
 
 #endif
