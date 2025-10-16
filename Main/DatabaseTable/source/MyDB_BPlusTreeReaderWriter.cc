@@ -288,6 +288,36 @@ MyDB_INRecordPtr MyDB_BPlusTreeReaderWriter :: getINRecord () {
 }
 
 void MyDB_BPlusTreeReaderWriter :: printTree () {  // REQUIRED - need to make test case for this too
+	queue<MyDB_PageReaderWriter> nodeQueue;  // Make queue
+	nodeQueue.push((*this)[this->rootLocation]);  // Push root node
+	MyDB_INRecordPtr recordPtr = getINRecord();
+
+	// While there are still pages...
+	while(!nodeQueue.empty()) {
+		int levelSize = nodeQueue.size();
+
+		for (int i = 0; i < levelSize; i++) {
+			// Get front element + pop it
+			MyDB_PageReaderWriter temp = nodeQueue.front();
+			nodeQueue.pop();
+			// Get iterator
+			MyDB_RecordIteratorAltPtr iterator = temp.getIteratorAlt();
+			// Begin printing
+			cout << "[";
+			bool hasNext = true;
+			while (hasNext) {  // While this node has a next...
+				iterator->getCurrent(recordPtr);  // Get current pointer data
+				if (temp.getType() == MyDB_PageType::DirectoryPage) {  // If internal page, push next page onto list
+					nodeQueue.push((*this)[recordPtr->getPtr()]);
+				}
+				cout << recordPtr << ", ";  // Print data
+				if (!iterator->advance()) {  // Advances pointer. If not...
+					cout << "] ";  // Prints end brackets
+				}
+			}
+		}
+		cout << endl;
+	}
 }
 
 MyDB_AttValPtr MyDB_BPlusTreeReaderWriter :: getKey (MyDB_RecordPtr fromMe) {
