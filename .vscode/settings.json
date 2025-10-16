@@ -2,6 +2,7 @@
     "files.associations": {
         "memory": "cpp",
         "functional": "cpp",
-        "vector": "cpp"
+        "vector": "cpp",
+        "queue": "cpp"
     }
 }
