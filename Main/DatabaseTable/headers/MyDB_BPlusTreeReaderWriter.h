@@ -45,6 +45,8 @@ public:
 	// print the contents of the tree to the screen
 	void printTree ();
 
+	//MyDB_RecordIteratorAltPtr getIteratorAlt();
+
 private:
 
 	/* NOTE THAT EACH OF THESE METHODS ARE OPTIONAL.  They are a suggestion for a set of helper
