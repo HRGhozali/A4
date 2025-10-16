@@ -480,6 +480,50 @@ int main (int argc, char *argv[]) {
 
         QUNIT_IS_TRUE (result);
     }
+
+    //+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // TEST 3: Insert enough records to cause the first leaf page to split.
+    //+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    {
+        cout << "\nTEST 3 (Leaf Split)... triggering a split on a leaf page\n" << flush;
+        remove("supplier.bin"); remove("catFile"); remove("tempFile");
+
+        MyDB_CatalogPtr myCatalog = make_shared <MyDB_Catalog> ("catFile");
+        MyDB_TablePtr myTable = make_shared <MyDB_Table> ("supplier", "supplier.bin", mySchema);
+        MyDB_BufferManagerPtr myMgr = make_shared <MyDB_BufferManager> (1024, 128, "tempFile");
+        MyDB_BPlusTreeReaderWriter supplierTable ("suppkey", myTable, myMgr);
+
+        // NOTE: You must create a "splitSupplier.tbl" file with enough records
+        // to cause a split (e.g., 6-10 records).
+        const int numRecordsInSplitFile = 10; // <-- Change this to match your file
+        supplierTable.loadFromTextFile ("splitSupplier.tbl");
+
+        // Verification 1: Check that all records are present.
+        MyDB_RecordPtr temp = supplierTable.getEmptyRecord ();
+        MyDB_RecordIteratorAltPtr myIter = supplierTable.getIteratorAlt ();
+        int counter = 0;
+        while (myIter->advance ()) { myIter->getCurrent (temp); counter++; }
+        
+        cout << "Found " << counter << " records.\n";
+        bool correctCount = (counter == numRecordsInSplitFile);
+
+        // Verification 2: Check that a new page was created.
+        // Initial tree: root (idx 0), leaf (idx 1) -> lastPage = 1
+        // After split: new leaf (idx 2) -> lastPage = 2
+        int lastPage = supplierTable.getTable()->lastPage();
+        cout << "Table's last page index is: " << lastPage << endl;
+        bool correctPageCount = (lastPage == 2);
+
+        bool result = correctCount && correctPageCount;
+        if (result) {
+            cout << "\tTEST 3 PASSED\n";
+        } else {
+            cout << "\tTEST 3 FAILED\n";
+            if (!correctCount) cout << "\t\t-> Incorrect record count.\n";
+            if (!correctPageCount) cout << "\t\t-> Incorrect page count after split (expected last page index of 2).\n";
+        }
+        QUNIT_IS_TRUE (result);
+    }
 }
 
 #endif
