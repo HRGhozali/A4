@@ -7,6 +7,7 @@
 #include "MyDB_PageReaderWriter.h"
 #include "MyDB_PageListIteratorSelfSortingAlt.h"
 #include "RecordComparator.h"
+#include <climits>
 #include <algorithm>
 
 MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName, MyDB_TablePtr forMe, 
@@ -61,10 +62,14 @@ MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getRangeIteratorAlt (MyD
 	MyDB_RecordPtr lhs = getEmptyRecord();
 	MyDB_RecordPtr rhs = getEmptyRecord();
 	MyDB_RecordPtr myRec = getEmptyRecord();
+
     MyDB_INRecordPtr llow = getINRecord();
     llow->setKey(low);
+    llow->recordContentHasChanged();
+
     MyDB_INRecordPtr hhigh = getINRecord();
     hhigh->setKey(high);
+    hhigh->recordContentHasChanged();
 
     // // build the comparison functions
     function <bool ()> comparator = buildComparator(lhs, rhs);
@@ -75,36 +80,85 @@ MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getRangeIteratorAlt (MyD
 }
 
 
+
 bool MyDB_BPlusTreeReaderWriter::discoverPages(int whichPage, vector<MyDB_PageReaderWriter> &list, MyDB_AttValPtr low, MyDB_AttValPtr high) {
 
     MyDB_PageReaderWriter currentPage = (*this)[whichPage];
 
-    // Base Case: If this is a leaf page, add it to the list.
+    // Base Case: Leaf Page
     if (currentPage.getType() == MyDB_PageType::RegularPage) {
         list.push_back(currentPage);
         return true;
     }
 
-    // Recursive Step: If this is an internal page, explore its children.
+    // Recursive Step: Internal Page
     if (currentPage.getType() == MyDB_PageType::DirectoryPage) {
+
         MyDB_RecordIteratorAltPtr iter = currentPage.getIteratorAlt();
+        MyDB_INRecordPtr currentRec = getINRecord();
+
+        // Prepare low/high sentinel records for comparisons
+        MyDB_INRecordPtr lowRec = getINRecord();
+        lowRec->setKey(low);
+        lowRec->recordContentHasChanged();
+
+        MyDB_INRecordPtr highRec = getINRecord();
+        highRec->setKey(high);
+        highRec->recordContentHasChanged();
+
+        // Initialize prevRec to -infinity (so first child range is (-inf, key0])
+        MyDB_AttValPtr minAtt = orderingAttType->createAtt();
+        minAtt->fromInt(INT_MIN);
+        MyDB_INRecordPtr prevRec = getINRecord();
+        prevRec->setKey(minAtt);
+        prevRec->recordContentHasChanged();
+        
+        
+        // This flag will track if we've hit the parent-of-leaves level.
+        bool atParentOfLeaves = false;
+
         while (iter->advance()) {
-            MyDB_INRecordPtr currentRec;
             iter->getCurrent(currentRec);
+
+            // currKey = child_max, prevKey = child_min
+            // Test if child_max < low
+            bool currLessLow = buildComparator(currentRec, lowRec)();   // currKey < low ?
+            // Test if high < prevKey
+            bool highLessPrev = buildComparator(highRec, prevRec)(); // high < prevKey ?
+
+            if (!currLessLow && !highLessPrev) {
+
+                // Check the flag. If we are at the parent-of-leaves level,
+                // we no longer need to recurse. We can add the leaf directly.
+                if (atParentOfLeaves) {
+                    list.push_back((*this)[currentRec->getPtr()]);
+                } else {
+                    // Otherwise, we are in an upper level, so we must recurse.
+                    bool childWasLeaf = discoverPages(currentRec->getPtr(), list, low, high);
+                    
+                    // If the child was a leaf, set the flag for all subsequent iterations of this loop.
+                    if (childWasLeaf) {
+                        atParentOfLeaves = true;
+                    }
+                }
+            }
             
-            // Recursively call discoverPages on the child pointer.
-            // For a full traversal, we visit every child.
-            discoverPages(currentRec->getPtr(), list, low, high);
+
+            prevRec->setKey(this->getKey(currentRec));
+            prevRec->recordContentHasChanged();
         }
         return false;
     }
     
-    return false; // Should not be reached
+    return false;
 }
+
+
+
 
 void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
     // Create empty BPlusTree
-    cerr << " NUM PAGES: " << getNumPages() << endl;
+    //cerr << " NUM PAGES: " << getNumPages() << endl;
     if (getTable()->lastPage() <= 0) {
         rootLocation = 0;
         int leafLocation = 1;
@@ -123,11 +177,10 @@ void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
 
         // Persist table metadata
         getTable()->setRootLocation(rootLocation);
-        //getTable()->setLastPage(leafLocation);
     }
     
     // Call the private, recursive append method, starting from the root.
-    cout << "append public rootLocation:  " << rootLocation << " and last page: " << getTable()->lastPage() << endl;
+    //cout << "append public rootLocation:  " << rootLocation << " and last page: " << getTable()->lastPage() << endl;
 
     MyDB_RecordPtr newSplitRecord = append(rootLocation, appendMe);
 
@@ -136,9 +189,6 @@ void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
         
         // 1. Get a new page from the buffer manager to serve as the new root.
         int newRootIndex = getTable()->lastPage() + 1;
-
-        // Immediately update the table's metadata to claim this new page.
-        //getTable()->setLastPage(newRootIndex);
 
         MyDB_PageReaderWriter newRootPage = (*this)[newRootIndex];
         newRootPage.setType(MyDB_PageType::DirectoryPage);
@@ -169,127 +219,79 @@ void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
 
 MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitMe, MyDB_RecordPtr andMe) {
 
-    cerr << "IN SPLIT" << endl;
-    // 1. Allocate a new page.
-
-    
-    // Get the index for the new page.
-    int newPageIdx = getTable()->lastPage() + 1;
-    
-    // Immmediatly claim this page.
-    //getTable()->setLastPage(newPageIdx);
-
-    // Get a PageReaderWriter for the new page.
-    MyDB_PageReaderWriter newPage = (*this)[newPageIdx];
-
-    // Set the new page's type to match the original page's type
     MyDB_PageType splitPageType = splitMe.getType();
+    int newPageIdx = getTable()->lastPage() + 1;
+    MyDB_PageReaderWriter newPage = (*this)[newPageIdx];
     newPage.setType(splitPageType);
 
-    // 2. Gather and sort all record
-    
     vector<MyDB_RecordPtr> records;
-
-    // Use a page iterator to loop through all records in splitMe and add them to the vector.
     MyDB_RecordIteratorAltPtr iter = splitMe.getIteratorAlt();
 
-    // Reusable buffer record
-    MyDB_RecordPtr currentRec = (splitMe.getType() == MyDB_PageType::RegularPage) ? getEmptyRecord() : getINRecord();
+    // This part is already correct and clever.
+    MyDB_RecordPtr currentRec = (splitPageType == MyDB_PageType::RegularPage) ? getEmptyRecord() : getINRecord();
 
     while(iter->advance()) {
-        
-        // Load the data for the current record into the buffer record
         iter->getCurrent(currentRec);
 
-        // Create a new, blank record to to hold the copy
-        MyDB_RecordPtr newCopy = getEmptyRecord();
+        // Create a copy object of the CORRECT type.
+        // If we are splitting a leaf, make a regular record.
+        // If we are splitting an internal node, make an INRecord.
+        MyDB_RecordPtr newCopy = (splitPageType == MyDB_PageType::RegularPage) ? getEmptyRecord() : getINRecord();
 
-        // Get the raw binary data from the buffer record.
+        // Now the binary copy is from a matching type to a matching type.
         void* tempBytes = malloc(currentRec->getBinarySize());
         currentRec->toBinary(tempBytes);
-
-        // Create a new record from the binary data.
         newCopy->fromBinary(tempBytes);
         free(tempBytes);
 
-        // Push the new copy into the vector
         records.push_back(newCopy);
     }
 
-    // Add the new record (andMe) to the vector. 
-    // Copy it as well.
-    MyDB_RecordPtr andMeCopy = getEmptyRecord();
+    // Also copy 'andMe' into the correct type of record.
+    MyDB_RecordPtr andMeCopy = (splitPageType == MyDB_PageType::RegularPage) ? getEmptyRecord() : getINRecord();
     void* tempBytes = malloc(andMe->getBinarySize());
     andMe->toBinary(tempBytes);
     andMeCopy->fromBinary(tempBytes);
     free(tempBytes);
     records.push_back(andMeCopy);
 
-    // Sort the vector
+    // The rest of your split logic is correct.
     std::sort(records.begin(), records.end(),[&](const MyDB_RecordPtr& r1, const MyDB_RecordPtr& r2) {
-        // The lambda captures 'this' to call the member function buildComparator.
-        // It returns true if r1 should come before r2, and false otherwise.
         return buildComparator(r1, r2)();
     });
 
-    // Clear the original page
     splitMe.clear();
-
-    // Restore the original page's type
     splitMe.setType(splitPageType);
 
-    // Calculate the split point
     int midpoint = records.size() / 2;
     
-    
-    // -- Case 1: Splitting a leaf page (same height)
-
     if (splitPageType == MyDB_PageType::RegularPage) {
-
-       
-        // The first half goes to the new page
         for (int i = 0; i < midpoint; i++) {
             newPage.append(records[i]);
         }
-
-        // The second half goes back to the original page
-        for (int i = midpoint; i < records.size(); i++) {
+        for (size_t i = midpoint; i < records.size(); i++) {
             splitMe.append(records[i]);
         }
 
-        // The promoted key is the first key in the second half
         MyDB_INRecordPtr promotedRec = getINRecord();
         promotedRec->setKey(getKey(records[midpoint]));
         promotedRec->setPtr(newPageIdx);
-        // Notify the record that its contents have changed.
         promotedRec->recordContentHasChanged();
         return promotedRec;
     } 
-    // Case 2: Internal/Directory pages (height growth)
-    else {
-        // The records BEFORE the middle go to the new page
+    else { // Internal Page
         for (int i = 0; i < midpoint; i++) {
             newPage.append(records[i]);
         }
-
-        // The records AFTER the middle go back to the original page
-        for (int i = midpoint + 1; i < (int)records.size(); i++) {
+        for (size_t i = midpoint + 1; i < records.size(); i++) {
             splitMe.append(records[i]);
         }
 
-        // Use static_pointer_cast to get an INRecord pointer without creating a new object.
         MyDB_INRecordPtr middleRecord = static_pointer_cast<MyDB_INRecord>(records[midpoint]);
-
-        // Update the pointer on the EXISTING middle record
         middleRecord->setPtr(newPageIdx);
-
-        //  Notify the record that its pointer has changed.
         middleRecord->recordContentHasChanged();
-
-        // Return the MODIFIED middle record itself for promotion
         return middleRecord;
     }
-
 }
 
 
@@ -299,9 +301,9 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
 // always holds the lower 1/2 of the records on the page; the upper 1/2 remains in the original page
 MyDB_RecordPtr MyDB_BPlusTreeReaderWriter::append(int whichPage, MyDB_RecordPtr appendMe) {
     
-    cerr << "\n=== [append] Enter page " << whichPage
-        << " type=" << ((*this)[whichPage].getType() == MyDB_PageType::DirectoryPage ? "DIR" : "LEAF")
-        << " ===" << endl;
+    //cerr << "\n=== [append] Enter page " << whichPage
+        //<< " type=" << ((*this)[whichPage].getType() == MyDB_PageType::DirectoryPage ? "DIR" : "LEAF")
+        //<< " ===" << endl;
 
     MyDB_PageReaderWriter currPage = (*this)[whichPage];
     
@@ -332,17 +334,25 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter::append(int whichPage, MyDB_RecordPtr 
         }
 
         // Recursively call append on the correct child.
-        cerr << "[append] Page " << whichPage << " type=" 
-        << (currPage.getType() == MyDB_PageType::RegularPage ? "LEAF" : "DIR") 
-        << endl;
+        //cerr << "[append] Page " << whichPage << " type=" 
+        //<< (currPage.getType() == MyDB_PageType::RegularPage ? "LEAF" : "DIR") 
+        //<< endl;
 
         MyDB_RecordPtr newSplitRecord = append(childPageIdx, appendMe);
 
         // If the child split, we need to handle the new record.
         if (newSplitRecord != nullptr) {
             if (currPage.append(newSplitRecord)) {
-                // The new record fit. Sort the page and we're done at this level.
-                currPage.sortInPlace(buildComparator(getINRecord(), getINRecord()), getINRecord(), getINRecord());
+                // 1. The record fit. Create the buffer records that sortInPlace will use.
+                MyDB_INRecordPtr lhs = getINRecord();
+                MyDB_INRecordPtr rhs = getINRecord();
+
+                // 2. Build the comparator FROM these specific buffer records.
+                function<bool()> comparator = buildComparator(lhs, rhs);
+
+                // 3. Call sortInPlace with the correct comparator and buffers.
+                currPage.sortInPlace(comparator, lhs, rhs);
+
                 return nullptr;
             } else {
                 // This page is also full and must split.
