@@ -54,8 +54,9 @@ private:
 
 	// gets a list of pages that might have data for an iterator... any leaf page that can possibly
 	// have a value in the range [low, high], inclusive should be returned from this call
-	bool discoverPages (int whichPage, vector <MyDB_PageReaderWriter> &list,
-        	MyDB_AttValPtr low, MyDB_AttValPtr high);
+	//bool discoverPages (int whichPage, vector <MyDB_PageReaderWriter> &list,
+        	//MyDB_AttValPtr low, MyDB_AttValPtr high);
+	bool discoverPages(int whichPage, vector<int> &pageIndexList, MyDB_AttValPtr low, MyDB_AttValPtr high);
 
 	// appends a record to the named page; if there is a split, then an MyDB_INRecordPtr is returned that
 	// points to the record holding the (key, ptr) pair pointing to the new page.  Note that the new page
@@ -77,6 +78,8 @@ private:
 	// tree, or they must be LN records for this tree, or a combination.  The resulting comparator returns true if and
 	// only if the first record has a key value less than the second record
 	function <bool ()> buildComparator (MyDB_RecordPtr lhs, MyDB_RecordPtr rhs);
+
+	void printTree (int whichPage, const std::string &prefix);
 
 	// the location (page number) of the root in the tree
 	int rootLocation;

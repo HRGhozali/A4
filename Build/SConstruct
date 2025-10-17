@@ -3,6 +3,8 @@ from os import listdir
 from os.path import isfile, join, abspath
 
 common_env = Environment()
+common_env.Tool('compilation_db')
+common_env.CompilationDatabase()
 common_env.Append(CXXFLAGS = '-std=c++11 -Wall -g -O3')
 common_env.Append(YACCFLAGS='-d')
 common_env.Append(CFLAGS='-std=c11')

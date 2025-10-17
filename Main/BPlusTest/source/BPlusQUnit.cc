@@ -207,6 +207,67 @@ int main (int argc, char *argv[]) {
 			cout << "\tTEST FAILED\n";
                 QUNIT_IS_TRUE (res && (counter == 10000));
 	}
+	// case 6:
+	// {
+
+	// 	cout << "TEST 6... creating tree for small table, on suppkey, checking for sorted order " << flush;
+	// 	MyDB_BufferManagerPtr myMgr = make_shared <MyDB_BufferManager> (1024, 128, "tempFile");
+	// 	MyDB_BPlusTreeReaderWriter supplierTable ("suppkey", myTable, myMgr);
+	// 	supplierTable.loadFromTextFile ("supplier.tbl");
+
+	// 	// there should be 10000 records
+	// 	MyDB_RecordPtr temp = supplierTable.getEmptyRecord ();
+
+	// 	int counter = 0;
+	// 	MyDB_IntAttValPtr low = make_shared <MyDB_IntAttVal> ();
+	// 	low->set (1);
+	// 	MyDB_IntAttValPtr high = make_shared <MyDB_IntAttVal> ();
+	// 	high->set (10000);
+
+	// 	MyDB_RecordIteratorAltPtr myIter = supplierTable.getSortedRangeIteratorAlt (low, high);
+	// 	bool res = true;
+		
+	// 	// Keep track of the last valid key we've seen.
+	// 	// Initialize to 0 since we expect the first key to be 1.
+	// 	int last_seen_key = 0;
+
+	// 	while (myIter->advance ()) {
+	// 		myIter->getCurrent (temp);
+	// 		counter++;
+			
+	// 		int current_key = temp->getAtt (0)->toInt ();
+	// 		int expected_key = last_seen_key + 1;
+
+	// 		// Check if the current key is the one we expect in the sequence.
+	// 		if (current_key != expected_key) {
+	// 			res = false;
+	// 			cout << "\n\tDEBUG: Sequence break detected!" << endl;
+	// 			cout << "\t       - Last correct key seen: " << last_seen_key << endl;
+	// 			cout << "\t       - Expected next key:     " << expected_key << endl;
+	// 			cout << "\t       - Actually found key:    " << current_key << endl;
+				
+	// 			// Stop at the first error to keep the output clean.
+	// 			break; 
+	// 		}
+			
+	// 		// If the key was correct, update our tracker.
+	// 		last_seen_key = current_key;
+	// 	}
+
+	// 	if (res && (counter == 10000)) {
+	// 		cout << "\tTEST PASSED\n";
+	// 	} else {
+	// 		cout << "\tTEST FAILED\n";
+	// 		if (!res) {
+	// 			cout << "\t       -> Reason: Records are not in perfect sequential order.\n";
+	// 		}
+	// 		if (counter != 10000) {
+	// 			cout << "\t       -> Reason: Incorrect total record count. Found " << counter << ", expected 10000.\n";
+	// 		}
+	// 	}
+		
+	// 	QUNIT_IS_TRUE (res && (counter == 10000));
+	// }
 	FALLTHROUGH_INTENDED;
 	case 7:
 	{
