@@ -33,7 +33,7 @@ MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getSortedRangeIteratorAl
 
     // Add dummy PageReaderWriter to pageList if empty
     if (pageList.size() == 0) {
-        pageList.push_back(MyDB_PageReaderWriter :: MyDB_PageReaderWriter (this->getBufferMgr));
+        pageList.push_back(MyDB_PageReaderWriter (*(this->getBufferMgr())));
     }
 
 	// Do first
@@ -112,61 +112,86 @@ bool MyDB_BPlusTreeReaderWriter::discoverPages(int whichPage, vector<MyDB_PageRe
         highRec->recordContentHasChanged();
 
         // Initialize prevRec to -infinity (so first child range is (-inf, key0])
-        MyDB_AttValPtr minAtt = orderingAttType->createAtt();
-        minAtt->fromInt(INT_MIN);
+        // MyDB_AttValPtr minAtt = orderingAttType->createAtt();
+        // minAtt->fromInt(INT_MIN);
+         MyDB_AttValPtr negInfAtt = orderingAttType->createAtt();
+        if (orderingAttType->promotableToInt()) {
+            negInfAtt->fromInt(INT_MIN);
+        } else if (orderingAttType->promotableToDouble()) {
+            negInfAtt->fromInt(INT_MIN);
+        } else if (orderingAttType->promotableToString()) {
+            std::string smallest = "";  // must be an lvalue for fromString()
+            negInfAtt->fromString(smallest);  // smallest possible string
+        }
+
+        
         MyDB_INRecordPtr prevRec = getINRecord();
-        prevRec->setKey(minAtt);
+        prevRec->setKey(negInfAtt); // minAtt
         prevRec->recordContentHasChanged();
         
         
         // This flag will track if we've hit the parent-of-leaves level.
         bool atParentOfLeaves = false;
 
+        // --- Iterate through internal records in sorted (in-order) sequence ---
         while (iter->advance()) {
+
             iter->getCurrent(currentRec);
 
-            // currKey = child_max, prevKey = child_min
-            // Test if child_max < low
-            bool currLessLow = buildComparator(currentRec, lowRec)();   // currKey < low ?
-            // Test if high < prevKey
-            bool highLessPrev = buildComparator(highRec, prevRec)(); // high < prevKey ?
-            
-            // ------------
-            // Case 1: Child is entirely to the left of the query (child_max < query_low).
-            //bool childIsLeft = buildComparator(currentRec, lowRec)();
+            // The child pointer associated with the interval (prevKey, currKey]
+            int childPtr = currentRec->getPtr();
 
-            // Case 2: Child is entirely to the right of the query (child_min >= query_high).
-            // This is equivalent to !(query_high > child_min).
-            //bool childIsRight = !buildComparator(prevRec, highRec)();
+            // Compare to the range bounds
+            bool currLessLow = buildComparator(currentRec, lowRec)();   // currKey < low?
+            bool highLessPrev = buildComparator(highRec, prevRec)();    // high < prevKey?
 
-            // ------------
-
+            // If this child overlaps the query range, explore it
             if (!currLessLow && !highLessPrev) {
-
-                // Check the flag. If we are at the parent-of-leaves level,
-                // we no longer need to recurse. We can add the leaf directly.
                 if (atParentOfLeaves) {
-                    list.push_back((*this)[currentRec->getPtr()]);
+                    // Optimization: if we already know children are leaves,
+                    // directly add the child page instead of recursing again
+                    list.push_back((*this)[childPtr]);
                 } else {
-                    // Otherwise, we are in an upper level, so we must recurse.
-                    bool childWasLeaf = discoverPages(currentRec->getPtr(), list, low, high);
-                    
-                    // If the child was a leaf, set the flag for all subsequent iterations of this loop.
-                    if (childWasLeaf) {
+                    // Otherwise, recurse normally
+                    bool childWasLeaf = discoverPages(childPtr, list, low, high);
+
+                    // If this child was a leaf, mark that we’ve reached leaf-parent level
+                    if (childWasLeaf)
                         atParentOfLeaves = true;
-                    }
                 }
             }
-            
 
+            // Advance prevRec for the next iteration
             prevRec->setKey(this->getKey(currentRec));
             prevRec->recordContentHasChanged();
         }
-        return false;
+
+        // After finishing all internal records, process the rightmost child.
+        // (Important for correctness: the last pointer beyond the last key)
+        MyDB_INRecordPtr infRec = getINRecord();
+        infRec->setKey(orderingAttType->createAtt());
+        infRec->recordContentHasChanged();
+
+        // Check if the high bound extends beyond the last key
+        bool beyondRange = buildComparator(highRec, prevRec)(); // high < prevKey?
+        if (!beyondRange) {
+            // Only visit the rightmost child if it could still hold keys in range
+            int rightmostPtr = currentRec->getPtr(); // currentRec holds the last child pointer
+            if (atParentOfLeaves) {
+                list.push_back((*this)[rightmostPtr]);
+            } else {
+                discoverPages(rightmostPtr, list, low, high);
+            }
+        }
+       
+
+        return false; // internal node
     }
-    
-    return false;
+    return false; // should not reach here
 }
+
+
+
 
 
 
@@ -242,15 +267,15 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
     vector<MyDB_RecordPtr> records;
     MyDB_RecordIteratorAltPtr iter = splitMe.getIteratorAlt();
 
-    // This part is already correct and clever.
+    // Empty record type.
     MyDB_RecordPtr currentRec = (splitPageType == MyDB_PageType::RegularPage) ? getEmptyRecord() : getINRecord();
 
     while(iter->advance()) {
         iter->getCurrent(currentRec);
 
         // Create a copy object of the CORRECT type.
-        // If we are splitting a leaf, make a regular record.
-        // If we are splitting an internal node, make an INRecord.
+        // If splitting a leaf, make a regular record.
+        // If splitting an internal node, make an INRecord.
         MyDB_RecordPtr newCopy = (splitPageType == MyDB_PageType::RegularPage) ? getEmptyRecord() : getINRecord();
 
         // Now the binary copy is from a matching type to a matching type.
@@ -271,7 +296,7 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
     records.push_back(andMeCopy);
 
     // The rest of your split logic is correct.
-    std::sort(records.begin(), records.end(),[&](const MyDB_RecordPtr& r1, const MyDB_RecordPtr& r2) {
+    std::stable_sort(records.begin(), records.end(),[&](const MyDB_RecordPtr& r1, const MyDB_RecordPtr& r2) {
         return buildComparator(r1, r2)();
     });
 
@@ -355,7 +380,7 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter::append(int whichPage, MyDB_RecordPtr 
 
         MyDB_RecordPtr newSplitRecord = append(childPageIdx, appendMe);
 
-        // If the child split, we need to handle the new record.
+        // If the child split, handle the new record.
         if (newSplitRecord != nullptr) {
             if (currPage.append(newSplitRecord)) {
                 // 1. The record fit. Create the buffer records that sortInPlace will use.
@@ -381,7 +406,7 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter::append(int whichPage, MyDB_RecordPtr 
     // Case 2: The page is a leaf node.
     } else {
         if (currPage.append(appendMe)) {
-            // The record fit. We are done.
+            // The record fit. Done.
             return nullptr;
         } else {
             // The page is full and must split.
