@@ -495,7 +495,7 @@ int main (int argc, char *argv[]) {
 
         // NOTE: You must create a "splitSupplier.tbl" file with enough records
         // to cause a split (e.g., 6-10 records).
-        const int numRecordsInSplitFile = 10; // <-- Change this to match your file
+        const int numRecordsInSplitFile = 9; // <-- Change this to match your file
         supplierTable.loadFromTextFile ("splitSupplier.tbl");
 
         // Verification 1: Check that all records are present.
@@ -521,6 +521,54 @@ int main (int argc, char *argv[]) {
             cout << "\tTEST 3 FAILED\n";
             if (!correctCount) cout << "\t\t-> Incorrect record count.\n";
             if (!correctPageCount) cout << "\t\t-> Incorrect page count after split (expected last page index of 2).\n";
+        }
+        QUNIT_IS_TRUE (result);
+    }
+
+    //+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // TEST 4: Insert enough records to cause the root to split, increasing tree height.
+    //+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    {
+        cout << "\nTEST 4 (Root Split)... triggering a split on the root page\n" << flush;
+        remove("supplier.bin"); remove("catFile"); remove("tempFile");
+
+        MyDB_CatalogPtr myCatalog = make_shared <MyDB_Catalog> ("catFile");
+        MyDB_TablePtr myTable = make_shared <MyDB_Table> ("supplier", "supplier.bin", mySchema);
+        MyDB_BufferManagerPtr myMgr = make_shared <MyDB_BufferManager> (1024, 128, "tempFile");
+        MyDB_BPlusTreeReaderWriter supplierTable ("suppkey", myTable, myMgr);
+
+        // Get the root location BEFORE loading data. It should be 0.
+        int initialRoot = myTable->getRootLocation();
+        cout << "Initial root location: " << initialRoot << endl;
+
+        // NOTE: You must create "rootSplitSupplier.tbl" with enough records
+        // to cause many leaf splits, which will then fill and split the root.
+        // This is likely several hundred records (e.g., 400).
+        const int numRecordsInRootSplitFile = 400; // <-- Adjust this to match your file
+        supplierTable.loadFromTextFile ("rootSplitSupplier.tbl");
+
+        // Verification 1: Check that all records are present.
+        MyDB_RecordPtr temp = supplierTable.getEmptyRecord();
+        MyDB_RecordIteratorAltPtr myIter = supplierTable.getIteratorAlt();
+        int counter = 0;
+        while (myIter->advance()) { myIter->getCurrent(temp); counter++; }
+        
+        cout << "Found " << counter << " records.\n";
+        bool correctCount = (counter == numRecordsInRootSplitFile);
+
+        // Verification 2: Check that the root location has changed.
+        // This is the definitive proof that the root split and the tree grew in height.
+        int finalRoot = myTable->getRootLocation();
+        cout << "Final root location: " << finalRoot << endl;
+        bool rootChanged = (finalRoot > initialRoot);
+
+        bool result = correctCount && rootChanged;
+        if (result) {
+            cout << "\tTEST 4 PASSED\n";
+        } else {
+            cout << "\tTEST 4 FAILED\n";
+            if (!correctCount) cout << "\t\t-> Incorrect record count.\n";
+            if (!rootChanged) cout << "\t\t-> Root location did not change (root did not split).\n";
         }
         QUNIT_IS_TRUE (result);
     }

@@ -9,88 +9,6 @@
 #include "RecordComparator.h"
 #include <algorithm>
 
-// MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName, MyDB_TablePtr forMe, 
-// 	MyDB_BufferManagerPtr myBuffer) : MyDB_TableReaderWriter (forMe, myBuffer) {
-	
-// 	// find the ordering attribute
-// 	auto res = forMe->getSchema ()->getAttByName (orderOnAttName);
-
-// 	// remember information about the ordering attribute
-// 	orderingAttType = res.second;
-// 	whichAttIsOrdering = res.first;
-
-// 	// and the root location
-// 	rootLocation = getTable ()->getRootLocation ();
-	
-	
-// 	// Check if the root location is -1 to detect a new tree.
-// 	if (rootLocation == -1) {
-
-// 		// This is is a new B+-Tree, so set up a root and first leaf page.
-// 		rootLocation = 0;
-// 		int leafLocation = 1;
-
-// 		// Create the root (internal) page
-//         auto rootPage = (*this)[rootLocation];
-//         rootPage.clear();
-//         rootPage.setType(MyDB_PageType::DirectoryPage);
-
-//         // Create the first leaf page
-//         auto leafPage = (*this)[leafLocation];
-//         leafPage.clear();
-//         leafPage.setType(MyDB_PageType::RegularPage);
-
-//         // Create inf record and pointer from root to leaf 
-//         MyDB_INRecordPtr infRec = getINRecord();  // creates key = inf
-//         infRec->setPtr(leafLocation);             // pointer to first leaf
-//         infRec->recordContentHasChanged();
-
-//         // Append to root internal page
-//         rootPage.append(infRec);
-
-//         // Persist table metadata 
-//         getTable()->setRootLocation(rootLocation);
-//         getTable()->setLastPage(leafLocation); // record the last allocated page
-// 	}
-// }
-
-// MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName, MyDB_TablePtr forMe,
-//     MyDB_BufferManagerPtr myBuffer) : MyDB_TableReaderWriter (forMe, myBuffer) {
-
-//     // find the ordering attribute
-// 	auto res = forMe->getSchema ()->getAttByName (orderOnAttName);
-
-// 	// remember information about the ordering attribute
-// 	orderingAttType = res.second;
-// 	whichAttIsOrdering = res.first;
-
-// 	// and the root location
-// 	rootLocation = getTable ()->getRootLocation ();
-//     cout << "rootLocation: " << rootLocation << endl;
-//     if (rootLocation == -1) {
-//         rootLocation = 0;
-//         int leafLocation = 1;
-
-//         // Create the root and first leaf
-//         (*this)[rootLocation].setType(MyDB_PageType::DirectoryPage);
-//         (*this)[leafLocation].setType(MyDB_PageType::RegularPage);
-
-//         // Create the initial "infinity" record
-//         MyDB_INRecordPtr infRec = getINRecord();
-//         infRec->setPtr(leafLocation);
-//         infRec->recordContentHasChanged();
-
-//         // Append to the root page directly
-//         (*this)[rootLocation].append(infRec);
-
-//         // Persist table metadata
-//         getTable()->setRootLocation(rootLocation);
-//         getTable()->setLastPage(leafLocation);
-//         cout << "HERE " << rootLocation << endl;
-//     }
-// }
-
-
 MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName, MyDB_TablePtr forMe, 
 	MyDB_BufferManagerPtr myBuffer) : MyDB_TableReaderWriter (forMe, myBuffer) {
 
@@ -186,8 +104,8 @@ bool MyDB_BPlusTreeReaderWriter::discoverPages(int whichPage, vector<MyDB_PageRe
 
 void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
     // Create empty BPlusTree
-    cerr << "START NUM PAGES: " << getNumPages() << endl;
-    if (getNumPages() == 1) {
+    cerr << " NUM PAGES: " << getNumPages() << endl;
+    if (getTable()->lastPage() <= 0) {
         rootLocation = 0;
         int leafLocation = 1;
 
@@ -209,7 +127,7 @@ void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
     }
     
     // Call the private, recursive append method, starting from the root.
-    cout << "append public rootLocation:  " << rootLocation << "and last page: " << getTable()->lastPage() << endl;
+    cout << "append public rootLocation:  " << rootLocation << " and last page: " << getTable()->lastPage() << endl;
 
     MyDB_RecordPtr newSplitRecord = append(rootLocation, appendMe);
 
@@ -237,7 +155,7 @@ void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
         MyDB_INRecordPtr oldRootPtrRec = getINRecord();
         oldRootPtrRec->setPtr(rootLocation);
 
-        // **THE FIX**: Notify this record that its pointer was just set.
+        // Notify this record that its pointer was just set.
         oldRootPtrRec->recordContentHasChanged();
 
         newRootPage.append(oldRootPtrRec);
@@ -250,6 +168,8 @@ void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
 
 
 MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitMe, MyDB_RecordPtr andMe) {
+
+    cerr << "IN SPLIT" << endl;
     // 1. Allocate a new page.
 
     
@@ -314,6 +234,9 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
 
     // Clear the original page
     splitMe.clear();
+
+    // Restore the original page's type
+    splitMe.setType(splitPageType);
 
     // Calculate the split point
     int midpoint = records.size() / 2;
