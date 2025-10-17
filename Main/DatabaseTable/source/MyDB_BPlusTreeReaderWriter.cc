@@ -470,9 +470,10 @@ void MyDB_BPlusTreeReaderWriter :: printTree () {  // REQUIRED - need to make te
 				if (temp.getType() == MyDB_PageType::DirectoryPage) {  // If internal page, push next page onto list
 					nodeQueue.push((*this)[recordPtr->getPtr()]);
 				}
-				cout << recordPtr << ", ";  // Print data
+				cout << MyDB_RecordPtr(recordPtr);  // Print data
 				if (!iterator->advance()) {  // Advances pointer. If not...
 					cout << "] ";  // Prints end brackets
+                    hasNext = false;
 				}
 			}
 		}
