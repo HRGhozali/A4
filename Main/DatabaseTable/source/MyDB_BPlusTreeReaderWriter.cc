@@ -31,6 +31,11 @@ MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getSortedRangeIteratorAl
 	// if page count = 0, add a single anonymous page into list
 	discoverPages(this->rootLocation, pageList, low, high);
 
+    // Add dummy PageReaderWriter to pageList if empty
+    if (pageList.size() == 0) {
+        pageList.push_back(MyDB_PageReaderWriter :: MyDB_PageReaderWriter (this->getBufferMgr));
+    }
+
 	// Do first
 	MyDB_RecordPtr lhs = getEmptyRecord();
 	MyDB_RecordPtr rhs = getEmptyRecord();
@@ -125,6 +130,16 @@ bool MyDB_BPlusTreeReaderWriter::discoverPages(int whichPage, vector<MyDB_PageRe
             bool currLessLow = buildComparator(currentRec, lowRec)();   // currKey < low ?
             // Test if high < prevKey
             bool highLessPrev = buildComparator(highRec, prevRec)(); // high < prevKey ?
+            
+            // ------------
+            // Case 1: Child is entirely to the left of the query (child_max < query_low).
+            //bool childIsLeft = buildComparator(currentRec, lowRec)();
+
+            // Case 2: Child is entirely to the right of the query (child_min >= query_high).
+            // This is equivalent to !(query_high > child_min).
+            //bool childIsRight = !buildComparator(prevRec, highRec)();
+
+            // ------------
 
             if (!currLessLow && !highLessPrev) {
 
