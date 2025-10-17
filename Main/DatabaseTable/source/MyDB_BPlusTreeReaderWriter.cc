@@ -54,10 +54,47 @@
 // 	}
 // }
 
-MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName, MyDB_TablePtr forMe,
-    MyDB_BufferManagerPtr myBuffer) : MyDB_TableReaderWriter (forMe, myBuffer) {
+// MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName, MyDB_TablePtr forMe,
+//     MyDB_BufferManagerPtr myBuffer) : MyDB_TableReaderWriter (forMe, myBuffer) {
 
-    // find the ordering attribute
+//     // find the ordering attribute
+// 	auto res = forMe->getSchema ()->getAttByName (orderOnAttName);
+
+// 	// remember information about the ordering attribute
+// 	orderingAttType = res.second;
+// 	whichAttIsOrdering = res.first;
+
+// 	// and the root location
+// 	rootLocation = getTable ()->getRootLocation ();
+//     cout << "rootLocation: " << rootLocation << endl;
+//     if (rootLocation == -1) {
+//         rootLocation = 0;
+//         int leafLocation = 1;
+
+//         // Create the root and first leaf
+//         (*this)[rootLocation].setType(MyDB_PageType::DirectoryPage);
+//         (*this)[leafLocation].setType(MyDB_PageType::RegularPage);
+
+//         // Create the initial "infinity" record
+//         MyDB_INRecordPtr infRec = getINRecord();
+//         infRec->setPtr(leafLocation);
+//         infRec->recordContentHasChanged();
+
+//         // Append to the root page directly
+//         (*this)[rootLocation].append(infRec);
+
+//         // Persist table metadata
+//         getTable()->setRootLocation(rootLocation);
+//         getTable()->setLastPage(leafLocation);
+//         cout << "HERE " << rootLocation << endl;
+//     }
+// }
+
+
+MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName, MyDB_TablePtr forMe, 
+	MyDB_BufferManagerPtr myBuffer) : MyDB_TableReaderWriter (forMe, myBuffer) {
+
+	// find the ordering attribute
 	auto res = forMe->getSchema ()->getAttByName (orderOnAttName);
 
 	// remember information about the ordering attribute
@@ -66,28 +103,6 @@ MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName,
 
 	// and the root location
 	rootLocation = getTable ()->getRootLocation ();
-    cout << "rootLocation: " << rootLocation << endl;
-    if (rootLocation == -1) {
-        rootLocation = 0;
-        int leafLocation = 1;
-
-        // Create the root and first leaf
-        (*this)[rootLocation].setType(MyDB_PageType::DirectoryPage);
-        (*this)[leafLocation].setType(MyDB_PageType::RegularPage);
-
-        // Create the initial "infinity" record
-        MyDB_INRecordPtr infRec = getINRecord();
-        infRec->setPtr(leafLocation);
-        infRec->recordContentHasChanged();
-
-        // Append to the root page directly
-        (*this)[rootLocation].append(infRec);
-
-        // Persist table metadata
-        getTable()->setRootLocation(rootLocation);
-        getTable()->setLastPage(leafLocation);
-        cout << "HERE " << rootLocation << endl;
-    }
 }
 
 MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getSortedRangeIteratorAlt (MyDB_AttValPtr low, MyDB_AttValPtr high) {  // REQUIRED
@@ -142,43 +157,6 @@ MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getRangeIteratorAlt (MyD
 }
 
 
-// bool MyDB_BPlusTreeReaderWriter :: discoverPages (int whichPage, vector <MyDB_PageReaderWriter> &list, MyDB_AttValPtr low, MyDB_AttValPtr high) {
-// 	// Recursively traverse all nodes to find all pages in range
-//     MyDB_INRecordPtr llow = getINRecord();
-//     llow->setKey(low);
-//     MyDB_INRecordPtr hhigh = getINRecord();
-//     hhigh->setKey(high);
-// 	MyDB_INRecordPtr myRec;
-// 	function <bool ()> lowComparator = buildComparator(myRec, llow);
-//     function <bool ()> highComparator = buildComparator(hhigh, myRec);
-
-// 	MyDB_PageReaderWriter currPage = (*this)[whichPage];
-// 	// Do we need an extra check for whether the page has data that fits? Not sure
-// 	if (currPage.getType() == MyDB_PageType::RegularPage) {
-// 		return true;
-// 	}
-
-// 	// Crappy recursive attempt
-// 	MyDB_RecordIteratorAltPtr temp = currPage.getIteratorAlt();
-// 	int childPageIdx = -1;
-// 	do {
-// 		temp->getCurrent(myRec);  // I do not know if my traversal stuff works
-// 		if (lowComparator() && highComparator()) {
-// 			childPageIdx = myRec->getPtr();
-// 			if (discoverPages(childPageIdx, list, low, high)) {  // If leaf, stop and immediately put every leaf into the list
-// 				do {
-// 					temp->getCurrent(myRec);
-// 					childPageIdx = myRec->getPtr();
-// 					list.push_back((*this)[childPageIdx]);
-// 				} while (temp->advance());
-// 				break;
-// 			}
-// 		}
-// 	} while (temp->advance());
-	
-// 	return false;
-// }
-
 bool MyDB_BPlusTreeReaderWriter::discoverPages(int whichPage, vector<MyDB_PageReaderWriter> &list, MyDB_AttValPtr low, MyDB_AttValPtr high) {
 
     MyDB_PageReaderWriter currentPage = (*this)[whichPage];
@@ -207,9 +185,32 @@ bool MyDB_BPlusTreeReaderWriter::discoverPages(int whichPage, vector<MyDB_PageRe
 }
 
 void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
+    // Create empty BPlusTree
+    cerr << "START NUM PAGES: " << getNumPages() << endl;
+    if (getNumPages() == 1) {
+        rootLocation = 0;
+        int leafLocation = 1;
+
+        // Create the root and first leaf
+        (*this)[rootLocation].setType(MyDB_PageType::DirectoryPage);
+        (*this)[leafLocation].setType(MyDB_PageType::RegularPage);
+
+        // Create the initial "infinity" record
+        MyDB_INRecordPtr infRec = getINRecord();
+        infRec->setPtr(leafLocation);
+        infRec->recordContentHasChanged();
+
+        // Append to the root page directly
+        (*this)[rootLocation].append(infRec);
+
+        // Persist table metadata
+        getTable()->setRootLocation(rootLocation);
+        //getTable()->setLastPage(leafLocation);
+    }
     
     // Call the private, recursive append method, starting from the root.
-    cout << "append public rootLocation:  " << rootLocation << endl;
+    cout << "append public rootLocation:  " << rootLocation << "and last page: " << getTable()->lastPage() << endl;
+
     MyDB_RecordPtr newSplitRecord = append(rootLocation, appendMe);
 
     // If the private append returns a non-null pointer, it means the root itself has split.
@@ -219,7 +220,7 @@ void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
         int newRootIndex = getTable()->lastPage() + 1;
 
         // Immediately update the table's metadata to claim this new page.
-        getTable()->setLastPage(newRootIndex);
+        //getTable()->setLastPage(newRootIndex);
 
         MyDB_PageReaderWriter newRootPage = (*this)[newRootIndex];
         newRootPage.setType(MyDB_PageType::DirectoryPage);
@@ -256,7 +257,7 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
     int newPageIdx = getTable()->lastPage() + 1;
     
     // Immmediatly claim this page.
-    getTable()->setLastPage(newPageIdx);
+    //getTable()->setLastPage(newPageIdx);
 
     // Get a PageReaderWriter for the new page.
     MyDB_PageReaderWriter newPage = (*this)[newPageIdx];
@@ -273,7 +274,7 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
     MyDB_RecordIteratorAltPtr iter = splitMe.getIteratorAlt();
 
     // Reusable buffer record
-    MyDB_RecordPtr currentRec = getEmptyRecord();
+    MyDB_RecordPtr currentRec = (splitMe.getType() == MyDB_PageType::RegularPage) ? getEmptyRecord() : getINRecord();
 
     while(iter->advance()) {
         
@@ -295,8 +296,14 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
         records.push_back(newCopy);
     }
 
-    // Add the new record (andMe) to the vector. Copy if errors occur.
-    records.push_back(andMe);
+    // Add the new record (andMe) to the vector. 
+    // Copy it as well.
+    MyDB_RecordPtr andMeCopy = getEmptyRecord();
+    void* tempBytes = malloc(andMe->getBinarySize());
+    andMe->toBinary(tempBytes);
+    andMeCopy->fromBinary(tempBytes);
+    free(tempBytes);
+    records.push_back(andMeCopy);
 
     // Sort the vector
     std::sort(records.begin(), records.end(),[&](const MyDB_RecordPtr& r1, const MyDB_RecordPtr& r2) {
@@ -331,7 +338,7 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
         MyDB_INRecordPtr promotedRec = getINRecord();
         promotedRec->setKey(getKey(records[midpoint]));
         promotedRec->setPtr(newPageIdx);
-        // THE FIX: Notify the record that its contents have changed.
+        // Notify the record that its contents have changed.
         promotedRec->recordContentHasChanged();
         return promotedRec;
     } 
@@ -347,21 +354,19 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
             splitMe.append(records[i]);
         }
 
-        // THE FIX: Use static_pointer_cast to get an INRecord pointer without creating a new object.
+        // Use static_pointer_cast to get an INRecord pointer without creating a new object.
         MyDB_INRecordPtr middleRecord = static_pointer_cast<MyDB_INRecord>(records[midpoint]);
 
         // Update the pointer on the EXISTING middle record
         middleRecord->setPtr(newPageIdx);
 
-        // THE FIX: Notify the record that its pointer has changed.
+        //  Notify the record that its pointer has changed.
         middleRecord->recordContentHasChanged();
 
         // Return the MODIFIED middle record itself for promotion
         return middleRecord;
     }
 
-
-	return nullptr;
 }
 
 
@@ -371,6 +376,10 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
 // always holds the lower 1/2 of the records on the page; the upper 1/2 remains in the original page
 MyDB_RecordPtr MyDB_BPlusTreeReaderWriter::append(int whichPage, MyDB_RecordPtr appendMe) {
     
+    cerr << "\n=== [append] Enter page " << whichPage
+        << " type=" << ((*this)[whichPage].getType() == MyDB_PageType::DirectoryPage ? "DIR" : "LEAF")
+        << " ===" << endl;
+
     MyDB_PageReaderWriter currPage = (*this)[whichPage];
     
     // Case 1: The page is an internal (directory) node.
