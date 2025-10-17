@@ -486,6 +486,7 @@ void MyDB_BPlusTreeReaderWriter :: printTree (int whichPage, const std::string &
     while(more) {
         iter->getCurrent(rec);
         more = iter->advance();
+        // Visualize leaf page
         std::cout << prefix << (more ? "├" : "└") << rec << std::endl;
         if (!isLeaf) {
             printTree(std::static_pointer_cast<MyDB_INRecord>(rec)->getPtr(), more ? prefix + "|" : prefix + " ");
