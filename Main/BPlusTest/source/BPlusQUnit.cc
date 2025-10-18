@@ -425,6 +425,37 @@ int main (int argc, char *argv[]) {
 			cout << "\tTEST FAILED\n";
 		QUNIT_IS_TRUE (allOK);
 	}
+	FALLTHROUGH_INTENDED;
+	case 11:
+	{
+		cout << "TEST 11... testing range query when sorting by comment " << flush;
+		MyDB_BufferManagerPtr myMgr = make_shared <MyDB_BufferManager> (1024, 128, "tempFile");
+		MyDB_BPlusTreeReaderWriter supplierTable ("comment", myTable, myMgr);
+		supplierTable.loadFromTextFile ("supplier.tbl");
+
+        // there should be 10000 records
+        MyDB_RecordPtr temp = supplierTable.getEmptyRecord ();
+
+		int counter = 0;
+		MyDB_StringAttValPtr low = make_shared <MyDB_StringAttVal> ();
+		std::string a = "requests haggle carefully. accounts sublate finally. carefully ironic pa";
+		std::string b = "slyly unusual pinto beans sleep carefully alongside of the furiously sly frets. regular, regula";
+		low->set (string (a));
+		MyDB_StringAttValPtr high = make_shared <MyDB_StringAttVal> ();
+		high->set (string (b));
+	
+		MyDB_RecordIteratorAltPtr myIter = supplierTable.getSortedRangeIteratorAlt (low, high);
+		while (myIter->advance ()) {
+			myIter->getCurrent (temp);
+			counter++;
+		}
+
+		if (counter == 1341)
+			cout << "\tTEST PASSED\n";
+		else
+			cout << "\tTEST FAILED\n";
+		QUNIT_IS_TRUE (counter == 1341);
+	}
 	}
 }
 
@@ -435,6 +466,17 @@ int main (int argc, char *argv[]) {
 
 
 
+	// FALLTHROUGH_INTENDED;
+	// case 12:
+	// {
+	// 	cout << "TEST 12... testing tree printing w/ comment " << flush;
+	// 	MyDB_BufferManagerPtr myMgr = make_shared <MyDB_BufferManager> (1024, 128, "tempFile");
+	// 	MyDB_BPlusTreeReaderWriter supplierTable ("comment", myTable, myMgr);
+	// 	supplierTable.loadFromTextFile ("supplier.tbl");
+
+    //     supplierTable.printTree();
+	// 	QUNIT_IS_TRUE (true);
+	// }
 
 
 // #ifndef BPLUS_TEST_H
