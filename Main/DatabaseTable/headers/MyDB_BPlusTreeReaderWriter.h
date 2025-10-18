@@ -54,9 +54,9 @@ private:
 
 	// gets a list of pages that might have data for an iterator... any leaf page that can possibly
 	// have a value in the range [low, high], inclusive should be returned from this call
-	//bool discoverPages (int whichPage, vector <MyDB_PageReaderWriter> &list,
-        	//MyDB_AttValPtr low, MyDB_AttValPtr high);
-	bool discoverPages(int whichPage, vector<int> &pageIndexList, MyDB_AttValPtr low, MyDB_AttValPtr high);
+	bool discoverPages (int whichPage, vector <MyDB_PageReaderWriter> &list,
+        	MyDB_AttValPtr low, MyDB_AttValPtr high);
+	//bool discoverPages(int whichPage, vector<int> &pageIndexList, MyDB_AttValPtr low, MyDB_AttValPtr high);
 
 	// appends a record to the named page; if there is a split, then an MyDB_INRecordPtr is returned that
 	// points to the record holding the (key, ptr) pair pointing to the new page.  Note that the new page

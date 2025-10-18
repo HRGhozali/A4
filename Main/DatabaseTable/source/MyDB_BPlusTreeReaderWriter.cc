@@ -25,29 +25,20 @@ MyDB_BPlusTreeReaderWriter :: MyDB_BPlusTreeReaderWriter (string orderOnAttName,
 }
 
 
-MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getSortedRangeIteratorAlt (MyDB_AttValPtr low, MyDB_AttValPtr high) {
-    
-    // Step 1: Collect the indices of all relevant pages in any order.
-    vector<int> pageIndexList;
-    discoverPages(this->rootLocation, pageIndexList, low, high);
+MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getSortedRangeIteratorAlt (MyDB_AttValPtr low, MyDB_AttValPtr high) {  // REQUIRED
 
-    // Step 2: Sort the simple list of integers. This is fast and always works.
-    // std::sort(pageIndexList.begin(), pageIndexList.end());
-
-    // Step 3: Build the final, correctly-ordered vector of PageReaderWriter objects.
+    /// discoverPages
     vector<MyDB_PageReaderWriter> pageList;
-    for (int index : pageIndexList) {
-        pageList.push_back((*this)[index]);
+    // check for page count
+    // if page count = 0, add a single anonymous page into list
+    discoverPages(this->rootLocation, pageList, low, high);
+
+    // Add dummy PageReaderWriter to pageList if empty
+    if (pageList.size() == 0) {
+        pageList.push_back(MyDB_PageReaderWriter (*(this->getBufferMgr())));
     }
 
-    // Handle the case where no pages are found.
-    if (pageList.empty()) {
-        // This prevents a crash in the iterator constructor by giving it a valid,
-        // albeit empty, anonymous page to iterate over.
-        pageList.push_back(MyDB_PageReaderWriter(*(this->getBufferMgr())));
-    }
-    
-    // The rest of your setup code is correct.
+    // Do first
     MyDB_RecordPtr lhs = getEmptyRecord();
     MyDB_RecordPtr rhs = getEmptyRecord();
     MyDB_RecordPtr myRec = getEmptyRecord();
@@ -57,7 +48,8 @@ MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getSortedRangeIteratorAl
     MyDB_INRecordPtr hhigh = getINRecord();
     hhigh->setKey(high);
     hhigh->recordContentHasChanged();
-    
+
+    // // build the comparison functions
     function <bool ()> comparator = buildComparator(lhs, rhs);
     function <bool ()> lowComparator = buildComparator(myRec, llow);
     function <bool ()> highComparator = buildComparator(hhigh, myRec);
@@ -66,27 +58,18 @@ MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getSortedRangeIteratorAl
 }
 
 
-MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getRangeIteratorAlt (MyDB_AttValPtr low, MyDB_AttValPtr high) {
-    
-    // Step 1: Collect the indices of all relevant pages into a vector of integers.
-    vector<int> pageIndexList;
-    if (getNumPages() > 0) {
-        discoverPages(this->rootLocation, pageIndexList, low, high);
-    }
+MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getRangeIteratorAlt (MyDB_AttValPtr low, MyDB_AttValPtr high) {  // REQUIRED
 
-    // Step 2: Build the final vector of PageReaderWriter objects from the collected indices.
     vector<MyDB_PageReaderWriter> pageList;
-    for (int index : pageIndexList) {
-        pageList.push_back((*this)[index]);
-    }
 
-    // Step 3: Handle the case where no pages are found to prevent a crash in the iterator.
-    // The iterator will be created with a valid (but empty) anonymous page.
-    if (pageList.empty()) {
-        pageList.push_back(MyDB_PageReaderWriter(*(this->getBufferMgr())));
+    // check for page count
+    // if page count = 0, add a single anonymous page into list
+    if (getNumPages() == 0) {
+        (*this)[0];  
     }
-    
-    // The rest of your setup code is correct.
+    discoverPages(this->rootLocation, pageList, low, high);
+
+    // Do first
     MyDB_RecordPtr lhs = getEmptyRecord();
     MyDB_RecordPtr rhs = getEmptyRecord();
     MyDB_RecordPtr myRec = getEmptyRecord();
@@ -99,105 +82,102 @@ MyDB_RecordIteratorAltPtr MyDB_BPlusTreeReaderWriter :: getRangeIteratorAlt (MyD
     hhigh->setKey(high);
     hhigh->recordContentHasChanged();
 
+    // // build the comparison functions
     function <bool ()> comparator = buildComparator(lhs, rhs);
     function <bool ()> lowComparator = buildComparator(myRec, llow);
     function <bool ()> highComparator = buildComparator(hhigh, myRec);
 
-    return make_shared<MyDB_PageListIteratorSelfSortingAlt>(pageList, lhs, rhs, 
-        comparator, myRec, lowComparator, highComparator, false);
+ return make_shared<MyDB_PageListIteratorSelfSortingAlt>(pageList, lhs, rhs, comparator, myRec, lowComparator, highComparator, false);
 }
 
 
-
-// The list now collects integer page indices
-bool MyDB_BPlusTreeReaderWriter::discoverPages(int whichPage, vector<int> &pageIndexList, MyDB_AttValPtr low, MyDB_AttValPtr high) {
+bool MyDB_BPlusTreeReaderWriter::discoverPages(int whichPage, vector<MyDB_PageReaderWriter> &list, MyDB_AttValPtr low, MyDB_AttValPtr high) {
 
     MyDB_PageReaderWriter currentPage = (*this)[whichPage];
 
+    // Base Case: Leaf Page
     if (currentPage.getType() == MyDB_PageType::RegularPage) {
-        pageIndexList.push_back(whichPage);
+        list.push_back(currentPage);
         return true;
     }
 
+    // Recursive Step: Internal Page
     if (currentPage.getType() == MyDB_PageType::DirectoryPage) {
 
         MyDB_RecordIteratorAltPtr iter = currentPage.getIteratorAlt();
         MyDB_INRecordPtr currentRec = getINRecord();
+
+        // Prepare low/high sentinel records for comparisons
         MyDB_INRecordPtr lowRec = getINRecord();
         lowRec->setKey(low);
         lowRec->recordContentHasChanged();
+
         MyDB_INRecordPtr highRec = getINRecord();
         highRec->setKey(high);
         highRec->recordContentHasChanged();
 
-        MyDB_AttValPtr negInfAtt = orderingAttType->createAtt();
+        // Initialize prevRec to -infinity (so first child range is (-inf, key0])
+         MyDB_AttValPtr negInfAtt = orderingAttType->createAtt();
         if (orderingAttType->promotableToInt() || orderingAttType->promotableToDouble()) {
             negInfAtt->fromInt(INT_MIN);
         } else if (orderingAttType->promotableToString()) {
-            string s = "";
-            negInfAtt->fromString(s);
+            std::string smallest = "";  // smallest possible string
+            negInfAtt->fromString(smallest); 
         }
+
+        
         MyDB_INRecordPtr prevRec = getINRecord();
-        prevRec->setKey(negInfAtt);
+        prevRec->setKey(negInfAtt); 
         prevRec->recordContentHasChanged();
         
+        
+        // This flag will track whether the program has hit the parent-of-leaves level.
         bool atParentOfLeaves = false;
 
-        // This loop correctly processes the first N children.
+        // --- Iterate through internal records in sorted (in-order) sequence ---
         while (iter->advance()) {
-            iter->getCurrent(currentRec);
-            
-            // This is the correct pruning logic for overlap.
-            bool highIsAfterOrOnPrev = !buildComparator(highRec, prevRec)();
-            bool lowIsBeforeOrOnCurr = !buildComparator(currentRec, lowRec)();
 
-            if (highIsAfterOrOnPrev && lowIsBeforeOrOnCurr) {
+            iter->getCurrent(currentRec);
+
+            // The child pointer associated with the interval (prevKey, currKey]
+            int childPtr = currentRec->getPtr();
+
+            // Compare to the range bounds
+            bool currLessLow = buildComparator(currentRec, lowRec)();   // currKey < low?
+            bool highLessPrev = buildComparator(highRec, prevRec)();    // high < prevKey?
+
+            // If this child overlaps the query range, explore it
+            if (!currLessLow && !highLessPrev) {
                 if (atParentOfLeaves) {
-                    pageIndexList.push_back(currentRec->getPtr());
+                    // Optimization: if we already know children are leaves,
+                    // directly add the child page instead of recursing again
+                    list.push_back((*this)[childPtr]);
                 } else {
-                    bool childWasLeaf = discoverPages(currentRec->getPtr(), pageIndexList, low, high);
-                    if (childWasLeaf) {
+                    // Otherwise, recurse normally
+                    bool childWasLeaf = discoverPages(childPtr, list, low, high);
+
+                    // If this child was a leaf, mark that this is the leaf-parent level
+                    if (childWasLeaf)
                         atParentOfLeaves = true;
-                    }
                 }
             }
+
+            // Advance prevRec for the next iteration
             prevRec->setKey(this->getKey(currentRec));
             prevRec->recordContentHasChanged();
         }
+       
 
-        // **THE FIX**: After the loop, you MUST explicitly handle the (N+1)th, rightmost child.
-        // Its range is (prevRec.key, +infinity]. We only need to check if the query
-        // range's high point comes after this child's low point.
-        // bool queryOverlapsRightmost = buildComparator(prevRec, highRec)(); // Is prevKey < high?
-        // if (queryOverlapsRightmost) {
-        //     // At the end of the loop, currentRec holds the last record, which contains
-        //     // the pointer to the Nth child. The B-Tree structure for N keys/N+1 ptrs is subtle.
-        //     // In many designs, the pointer for the last range is implicit or stored differently.
-        //     // However, in your specific framework, the iterator might not be giving you the last record.
-        //     // A more robust way to get the last pointer is needed if the iterator is incomplete.
-        //     // Let's assume for now the last record seen DOES hold the rightmost pointer, as that's
-        //     // a common simplification.
-        //     int rightmostPtr = currentRec->getPtr(); 
-        //     if (atParentOfLeaves) {
-        //         pageIndexList.push_back(rightmostPtr);
-        //     } else {
-        //         discoverPages(rightmostPtr, pageIndexList, low, high);
-        //     }
-        // }
-
-        return false;
+        return false; // internal node
     }
-    return false;
+    return false; // should not reach here
 }
 
 
-
-
-
-
+// append a record to the B+-Tree
 void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
+
     // Create empty BPlusTree
-    //cerr << " NUM PAGES: " << getNumPages() << endl;
     if (getNumPages() <= 1) { //getTable()->lastPage() <= 0
         rootLocation = 0;
         int leafLocation = 1;
@@ -219,8 +199,6 @@ void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
     }
     
     // Call the private, recursive append method, starting from the root.
-    //cout << "append public rootLocation:  " << rootLocation << " and last page: " << getTable()->lastPage() << endl;
-
     MyDB_RecordPtr newSplitRecord = append(rootLocation, appendMe);
 
     // If the private append returns a non-null pointer, it means the root itself has split.
@@ -256,14 +234,21 @@ void MyDB_BPlusTreeReaderWriter::append(MyDB_RecordPtr appendMe) {
 }
 
 
+// splits the given page (plus the record andMe) around the median.  A MyDB_INRecordPtr is returned that
+// points to the record holding the (key, ptr) pair pointing to the new page.  Note that the new page
+// always holds the lower 1/2 of the records on the page; the upper 1/2 remains in the original page
 MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitMe, MyDB_RecordPtr andMe) {
 
+    // Claim a new page.
     MyDB_PageType splitPageType = splitMe.getType();
     int newPageIdx = getTable()->lastPage() + 1;
     MyDB_PageReaderWriter newPage = (*this)[newPageIdx];
     newPage.setType(splitPageType);
 
+    // Vector to hold all the records. 
     vector<MyDB_RecordPtr> records;
+
+    // Get iterator over the page to split.
     MyDB_RecordIteratorAltPtr iter = splitMe.getIteratorAlt();
 
     // Empty record type.
@@ -272,9 +257,8 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
     while(iter->advance()) {
         iter->getCurrent(currentRec);
 
-        // Create a copy object of the CORRECT type.
-        // If splitting a leaf, make a regular record.
-        // If splitting an internal node, make an INRecord.
+        // If splitting a leaf, make a copy a regular record.
+        // If splitting an internal node, make a copy of an INRecord.
         MyDB_RecordPtr newCopy = (splitPageType == MyDB_PageType::RegularPage) ? getEmptyRecord() : getINRecord();
 
         // Now the binary copy is from a matching type to a matching type.
@@ -299,54 +283,34 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
         return buildComparator(r1, r2)();
     });
 
+    // Clear the page to split and reset its type.
     splitMe.clear();
     splitMe.setType(splitPageType);
 
+
+    /* Splitting logic for both leaf and internal records */
     int midpoint = records.size() / 2;
-    
-    if (splitPageType == MyDB_PageType::RegularPage) {
 
-        // Lower half goes to the new page.
-        for (int i = 0; i < midpoint; i++) {
-            newPage.append(records[i]);
-        }
-        // Upper half stays in the original page.
-        for (size_t i = midpoint; i < records.size(); i++) {
-            splitMe.append(records[i]);
-        }
-
-        MyDB_INRecordPtr promotedRec = getINRecord();
-        // The promoted key is the LARGEST key in the new (LEFT) page.
-        // This is now consistent with the internal split logic.
-        promotedRec->setKey(getKey(records[midpoint - 1]));
-        // The pointer points to this new page.
-        promotedRec->setPtr(newPageIdx);
-        promotedRec->recordContentHasChanged();
-        return promotedRec;
-    } 
-    else { // Internal Page
-
-        // The lower half of records go to the new (left) page.
-        for (int i = 0; i < midpoint; i++) {
-            newPage.append(records[i]);
-        }
-        
-        // The upper half (INCLUDING the median) goes to the original (right) page.
-        for (size_t i = midpoint; i < records.size(); i++) {
-            splitMe.append(records[i]);
-        }
-
-        // Create a NEW record for promotion.
-        MyDB_INRecordPtr promotedRec = getINRecord();
-        
-        // The promoted key is the LARGEST key in the new (left) page.
-        promotedRec->setKey(getKey(records[midpoint - 1]));
-        
-        // The pointer in the parent must point to this new page containing the smaller keys.
-        promotedRec->setPtr(newPageIdx);
-        promotedRec->recordContentHasChanged();
-        return promotedRec;
+    // The lower half of records go to the new (left) page.
+    for (int i = 0; i < midpoint; i++) {
+        newPage.append(records[i]);
     }
+    
+    // The upper half (INCLUDING the median) goes to the original (right) page.
+    for (size_t i = midpoint; i < records.size(); i++) {
+        splitMe.append(records[i]);
+    }
+
+    // Create a NEW record for promotion.
+    MyDB_INRecordPtr promotedRec = getINRecord();
+    
+    // The promoted key is the LARGEST key in the new (left) page.
+    promotedRec->setKey(getKey(records[midpoint - 1]));
+    
+    // The pointer in the parent must point to this new page containing the smaller keys.
+    promotedRec->setPtr(newPageIdx);
+    promotedRec->recordContentHasChanged();
+    return promotedRec;
 }
 
 
@@ -356,10 +320,7 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter :: split (MyDB_PageReaderWriter splitM
 // always holds the lower 1/2 of the records on the page; the upper 1/2 remains in the original page
 MyDB_RecordPtr MyDB_BPlusTreeReaderWriter::append(int whichPage, MyDB_RecordPtr appendMe) {
     
-    //cerr << "\n=== [append] Enter page " << whichPage
-        //<< " type=" << ((*this)[whichPage].getType() == MyDB_PageType::DirectoryPage ? "DIR" : "LEAF")
-        //<< " ===" << endl;
-
+    // Get the current PageReaderWriter
     MyDB_PageReaderWriter currPage = (*this)[whichPage];
     
     // Case 1: The page is an internal (directory) node.
@@ -368,21 +329,15 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter::append(int whichPage, MyDB_RecordPtr 
         MyDB_RecordIteratorAltPtr iterator = currPage.getIteratorAlt();
         int childPageIdx = -1;
 
-        // Create a valid, non-null record object before the loop.
+        // Valid, non-null record object before the loop.
         // This object will be reused by the iterator to hold data.
         MyDB_INRecordPtr currINRecord = getINRecord();
 
         while (iterator->advance()) {
-            // Now, getCurrent is given a valid object to fill.
+           
             iterator->getCurrent(currINRecord);
 
-            // if (buildComparator(appendMe, currINRecord)()) {
-            //     childPageIdx = currINRecord->getPtr();
-            //     break;
-            // }
-
-            // The new logic is `appendMe.key <= currINRecord.key`, which is
-            // equivalent to `!(currINRecord.key < appendMe.key)`.
+            // Where to append appendMe.
             if (!buildComparator(currINRecord, appendMe)()) {
                 childPageIdx = currINRecord->getPtr();
                 break;
@@ -396,10 +351,6 @@ MyDB_RecordPtr MyDB_BPlusTreeReaderWriter::append(int whichPage, MyDB_RecordPtr 
         }
 
         // Recursively call append on the correct child.
-        //cerr << "[append] Page " << whichPage << " type=" 
-        //<< (currPage.getType() == MyDB_PageType::RegularPage ? "LEAF" : "DIR") 
-        //<< endl;
-
         MyDB_RecordPtr newSplitRecord = append(childPageIdx, appendMe);
 
         // If the child split, handle the new record.
@@ -442,39 +393,6 @@ MyDB_INRecordPtr MyDB_BPlusTreeReaderWriter :: getINRecord () {
 	return make_shared <MyDB_INRecord> (orderingAttType->createAttMax ());
 }
 
-// void MyDB_BPlusTreeReaderWriter :: printTree () {  // REQUIRED - need to make test case for this too
-// 	queue<MyDB_PageReaderWriter> nodeQueue;  // Make queue
-// 	nodeQueue.push((*this)[this->rootLocation]);  // Push root node
-// 	MyDB_INRecordPtr recordPtr = getINRecord();
-
-// 	// While there are still pages...
-// 	while(!nodeQueue.empty()) {
-// 		int levelSize = nodeQueue.size();
-
-// 		for (int i = 0; i < levelSize; i++) {
-// 			// Get front element + pop it
-// 			MyDB_PageReaderWriter temp = nodeQueue.front();
-// 			nodeQueue.pop();
-// 			// Get iterator
-// 			MyDB_RecordIteratorAltPtr iterator = temp.getIteratorAlt();
-// 			// Begin printing
-// 			cout << "[";
-// 			bool hasNext = true;
-// 			while (hasNext) {  // While this node has a next...
-// 				iterator->getCurrent(recordPtr);  // Get current pointer data
-// 				if (temp.getType() == MyDB_PageType::DirectoryPage) {  // If internal page, push next page onto list
-// 					nodeQueue.push((*this)[recordPtr->getPtr()]);
-// 				}
-// 				cout << MyDB_RecordPtr(recordPtr);  // Print data
-// 				if (!iterator->advance()) {  // Advances pointer. If not...
-// 					cout << "] ";  // Prints end brackets
-//                     hasNext = false;
-// 				}
-// 			}
-// 		}
-// 		cout << endl;
-// 	}
-// }
 
 void MyDB_BPlusTreeReaderWriter :: printTree (int whichPage, const std::string &prefix) {  // REQUIRED - need to make test case for this too
     auto page{operator[](whichPage)};

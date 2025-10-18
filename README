@@ -1,0 +1,8 @@
+Alejandro Lucena, ajl18
+Rey Ghozali, rg157
+
+Important information: 
+1. We chose to implement our private append() helper as a recursive function rather than the private split() function. In addition, the way we handle the split logic
+is that we append copies of all all the record pointers from the splitMe PageReaderWriter object into a vector, as well as the addMe record. We then clear() the old splitMe page and append 1/2 of the lower keys to the new page and 1/2 of the higher keys to the old splitMe page, while promoting the highest key in the newPage to be an internal note. This allows our split logic to be unified across leaf and internal nodes. 
+2. Our discoverPages() method implements the mentioned optimization in A4.pdf, whereas when we realize we have traversed to a leaf node, we stop the I/Os and directly add the child page instead of recursing again. 
+3. Our implementation is somewhat slow. It may take 4-7 minutes for all 10 cases to fully execute and pass, with test cases 4-5 being the bottlenecks. 
