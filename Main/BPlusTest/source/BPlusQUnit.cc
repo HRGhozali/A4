@@ -431,7 +431,7 @@ int main (int argc, char *argv[]) {
 		cout << "TEST 11... testing range query when sorting by comment " << flush;
 		MyDB_BufferManagerPtr myMgr = make_shared <MyDB_BufferManager> (1024, 128, "tempFile");
 		MyDB_BPlusTreeReaderWriter supplierTable ("comment", myTable, myMgr);
-		supplierTable.loadFromTextFile ("supplier.tbl");
+		supplierTable.loadFromTextFile ("smallerSupplier.tbl");
 
         // there should be 10000 records
         MyDB_RecordPtr temp = supplierTable.getEmptyRecord ();
@@ -450,11 +450,35 @@ int main (int argc, char *argv[]) {
 			counter++;
 		}
 
-		if (counter == 1341)
+		if (counter == 16)
 			cout << "\tTEST PASSED\n";
 		else
 			cout << "\tTEST FAILED\n";
-		QUNIT_IS_TRUE (counter == 1341);
+		QUNIT_IS_TRUE (counter == 16);
+	}
+	FALLTHROUGH_INTENDED;
+	case 12:
+	{
+		cout << "TEST 12... dupes " << flush;
+		MyDB_BufferManagerPtr myMgr = make_shared <MyDB_BufferManager> (1024, 128, "tempFile");
+		MyDB_BPlusTreeReaderWriter supplierTable ("comment", myTable, myMgr);
+		supplierTable.loadFromTextFile ("dupes.tbl");
+
+        // there should be 10000 records
+        MyDB_RecordPtr temp = supplierTable.getEmptyRecord ();
+
+		int counter = 0;
+		MyDB_RecordIteratorAltPtr myIter = supplierTable.getIteratorAlt ();
+		while (myIter->advance ()) {
+			myIter->getCurrent (temp);
+			counter++;
+		}
+
+		if (counter == 10)
+			cout << "\tTEST PASSED\n";
+		else
+			cout << "\tTEST FAILED\n";
+		QUNIT_IS_TRUE (counter == 10);
 	}
 	}
 }
